@@ -1,0 +1,189 @@
+---
+title: "ASCoR Hammacher Hypothesis Testing"
+author: "Eric Chang"
+date: "12/13/2016"
+output:
+  html_document: default
+  pdf_document: default
+---
+# Setup
+```{r, message=F, warning=F}
+# import libraries and load data
+require(dplyr)
+require(magrittr)
+require(ggplot2)
+require(tidyr)
+dat <- read.csv("data.csv")
+
+# create response variable
+dat$purchase <- ifelse(dat$review_bottomline == "Yes", 1, 0) %>% as.factor()
+
+# clean up feature names
+labs <- names(dat) %>% as.character()
+labs[grepl("X", labs)] <- 
+  labs[grepl("X", labs)] %>% 
+    gsub(pattern="\\.\\.", replacement="\\.") %>% 
+    gsub(pattern="^.*?\\.", replacement="")
+
+labs <- gsub(labs, pattern="\\.", replacement="_")
+names(dat) <- labs
+
+# center all plots
+knitr::opts_chunk$set(fig.align="center")
+```
+
+```{r}
+summary_reduced <- function(model){
+  # returns a reduced and more readable model summary
+  # round coefficients, error and significance values
+  coefs <- summary(model)$coefficients
+  rows <- dim(coefs)[1]
+  cols <- dim(coefs)[2]
+  coefs[1:rows, 1:(cols-1)] <- coefs[1:rows, 1:(cols-1)] %>% round(2)
+  return(coefs)
+}
+```
+
+\pagebreak
+
+# Group A
+### H1: When material harm is used in the injustice frame, the purchase behaviour of a customer is more negative than when emotional harm is used in the injustice frame.
+Let's test the effects of `material_harm` and `emotional_harm` on probability of `purchase`.
+$$logit(purchase) = \beta_0 + \beta_1 *material\_harm +  \beta_2*emotional\_harm$$
+  
+```{r}
+fit <- glm(purchase ~ material_harm + emotional_harm, dat, family="binomial")
+summary_reduced(fit)
+```
+
+In this case, we actually find that purchase behavior is more negative when emotional harm is used in the injustice frame, because $\beta_{emotional} < \beta_{material}$.  
+
+\ 
+
+### H2a: When a high involved, rational product is reviewed, it is more likely that the reviewer will use material harm in the injustice frame, than emotional harm.
+We will test this hypothesis using two equations, using `involvement`, `think_feel`, and their interaction to regress on `material_harm` and then `emotional_harm`.
+```{r}
+fit1 <- glm(material_harm ~ involvement*think_feel, dat, family="binomial")
+fit2 <- glm(emotional_harm ~ involvement*think_feel, dat, family="binomial")
+summary_reduced(fit1)
+summary_reduced(fit2)
+```
+
+Neither of the features nor their interaction term are statistically significant.
+
+
+\newpage
+
+# Group B
+
+### H1: The presence of the identity frame in a customer review has a negative effect on consumers’ purchase intention.
+
+To test this hypothesis, let's create a binary variable called `identity_frame` that takes a positive value when any of the variables indicating an identity frame (blames the firm, claims that the firm is in control, etc.) is positive, and negative when there are no indications of an identity frame. We will then run a simple logistic regression with the equation:
+$$logit(purchase) = \beta_0 + \beta_1 *identity\_frame$$
+```{r}
+names(dat)[23:28]
+identity_frame_vars <- rowSums(dat %>% select(23:28))
+dat$identity_frame <- ifelse(identity_frame_vars != 0, 1, 0)
+
+fit <- glm(purchase ~ identity_frame, dat, family = "binomial")
+summary_reduced(fit)
+```
+
+This hypothesis is correct because the coefficient of `identity_frame` is negative. Also note that the p-value of identity frame is around 0.032, which is statistically significant at the standard significance level of 0.05.
+
+\ 
+
+### H2: The presence of human voice in a customer review has a positive effect on consumers’ purchase intention.
+
+Similar to the last test, we'll create a summary binary variable called `human_voice` to indicate the presence of any positive human voice features.
+```{r}
+human_voice_vars <- rowSums(dat %>% select(Use_of_emoticons:Use_of_caps_lock))
+dat$human_voice <- ifelse(human_voice_vars != 0, 1, 0)
+
+fit <- glm(purchase ~ human_voice, dat, family = "binomial")
+summary_reduced(fit)
+```
+
+This time, our p-value for `human_voice` is 0.36, which means that we cannot conclude that there is a significant relationship between the presence of human voice and purchase probability.
+
+\newpage
+
+# Group C
+
+### H1: Reviews that express a call to action have stronger negative impact on purchase behaviour than the reviews expressing revenge behaviour.
+
+Let's test the effects of `revenge_behaviors` and `call_to_action` on probability of `purchase`.
+$$logit(purchase) = \beta_0 + \beta_1 *revenge\_behaviors +  \beta_2*call\_to\_action$$
+
+```{r}
+fit <- glm(purchase ~ Revenge_behaviors + Call_to_action, 
+           dat, family="binomial")
+summary_reduced(fit)
+```
+
+Notice that this is a strange output. Why is there no coefficient for `revenge_behaviors`? Taking a look at the frequency count of values in `revenge_behaviors`...
+
+```{r}
+table(dat$Revenge_behaviors)
+```
+
+It turns out that all the values are 0! There are no examples of revenge behavior in this dataset and therefore this hypothesis test cannot be performed. In addition, note that the p-value of `call_to_action` is around .98 which is not statistically significant.
+
+\ 
+
+### H2: Reviews which express a disappointment in functionality have a more negative dat %>% filter(positive_emotions < 1000, negative_emotions < 1000)pointment` and `aesthetic_disappointment` on probability of `purchase`.
+$$logit(purchase) = \beta_0 + \beta_1 *functionality\_disappointment +  \beta_2*aesthetic\_disappointment$$
+```{r}
+fit <- glm(purchase ~ Functionality_disappointment + Aesthetic_disappointment, 
+           dat, family="binomial")
+summary_reduced(fit)
+```
+
+The hypothesis is correct. Since both features are binary, we can infer from the magnitude of the coefficients that functionality disappointment carries around 1.5 times the negative impact tht aesthetic disappointment does on purchase probability.
+
+\newpage
+
+# Group E
+
+### H1: Negative distinct emotions are more frequently present in the online reviews than positive distinct emotions.
+
+To explore this question, we need to look at a histogram of the count of negative distinct emotions and positive distinct emotions. Since these were not defined, I'll make some assumptions and hand code some of the positive and negative fields.
+
+```{r}
+dat$positive_emotions <- dat %>% select(Impressed, Happy, Good, Calm, Relaxed, Content, 
+                                        Excited, Satisfied, Pleased) %>% 
+                                 rowSums()
+
+dat$negative_emotions <- dat %>% select(Frustrated, Disappointed, Angry, Discontent,
+                                        Afraid, Depressed, Annoyed, Enraged, Distressed,
+                                        Uncomfortable, Worried, Sad) %>% 
+                                 rowSums()
+plotdat <- dat %>% 
+             select(positive_emotions, negative_emotions) %>% 
+             filter(positive_emotions < 1000, negative_emotions < 1000) %>% 
+             gather(key="emotion_type", value="count")
+```
+
+```{r, fig.width=6, fig.height=4}
+ggplot(data=plotdat) +
+  stat_count(aes(x=count, fill=emotion_type), alpha=.8) +
+  facet_grid(emotion_type ~ .) +
+  ggtitle("Count of positive/negative emotion occurrence")
+```
+
+Even though we included more negative emotion fields (12) compared to positive emotion fields (9), we see that in general reviews have more occurrences of positive emotions.
+
+### H2: The reviews with the most negative tone lead to the lowest purchase.
+
+Let's test the effect of `tone` on probability of `purchase`.
+$$logit(purchase) = \beta_0 + \beta_1 *tone$$
+
+```{r}
+fit <- glm(purchase ~ Tone, filter(dat, Tone != 999), family="binomial")
+summary_reduced(fit)
+```
+
+Since the coefficient of `Tone` is positive, we accept the hypothesis that more negative tones lead to lower purchase probability (and more positive tones lead to higher purchase probability).
+
+
+
